@@ -18,72 +18,86 @@ const fredSeries = {
 };
 
 async function getYahooQuotes() {
-  const symbols = Object.values(yahooSymbols).join(",");
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
+  try {
+    const symbols = Object.values(yahooSymbols).join(",");
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
 
-  const res = await fetch(url);
-  const json = await res.json();
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+      }
+    });
 
-  const bySymbol = {};
-  for (const item of json.quoteResponse.result) {
-    bySymbol[item.symbol] = {
-      price: item.regularMarketPrice,
-      change: item.regularMarketChangePercent,
-      time: item.regularMarketTime
+    const json = await res.json();
+    const results = json.quoteResponse?.result || [];
+
+    const bySymbol = {};
+    for (const item of results) {
+      bySymbol[item.symbol] = {
+        price: item.regularMarketPrice ?? null,
+        change: item.regularMarketChangePercent ?? null,
+        time: item.regularMarketTime ?? null
+      };
+    }
+
+    return {
+      sp500: bySymbol["^GSPC"] || null,
+      nasdaq: bySymbol["^IXIC"] || null,
+      russell: bySymbol["^RUT"] || null,
+      vix: bySymbol["^VIX"] || null,
+      dxy: bySymbol["DX-Y.NYB"] || null,
+      wti: bySymbol["CL=F"] || null,
+      gold: bySymbol["GC=F"] || null,
+      btc: bySymbol["BTC-USD"] || null
     };
+  } catch {
+    return {};
   }
-
-  return {
-    sp500: bySymbol["^GSPC"],
-    nasdaq: bySymbol["^IXIC"],
-    russell: bySymbol["^RUT"],
-    vix: bySymbol["^VIX"],
-    dxy: bySymbol["DX-Y.NYB"],
-    wti: bySymbol["CL=F"],
-    gold: bySymbol["GC=F"],
-    btc: bySymbol["BTC-USD"]
-  };
 }
 
 async function getFredLatest(seriesId) {
-  if (!FRED_KEY) return null;
+  try {
+    if (!FRED_KEY) return null;
 
-  const url =
-    `https://api.stlouisfed.org/fred/series/observations` +
-    `?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=1`;
+    const url =
+      `https://api.stlouisfed.org/fred/series/observations` +
+      `?series_id=${seriesId}` +
+      `&api_key=${FRED_KEY}` +
+      `&file_type=json` +
+      `&sort_order=desc` +
+      `&limit=1`;
 
-  const res = await fetch(url);
-  const json = await res.json();
+    const res = await fetch(url);
+    const json = await res.json();
+    const obs = json.observations?.[0];
 
-  const obs = json.observations?.[0];
-
-  return {
-    price: obs?.value === "." ? null : Number(obs?.value),
-    change: null,
-    date: obs?.date
-  };
+    return {
+      price: obs?.value === "." ? null : Number(obs?.value),
+      change: null,
+      date: obs?.date || null
+    };
+  } catch {
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
-  try {
-    const yahoo = await getYahooQuotes();
+  const yahoo = await getYahooQuotes();
 
-    const [sofr, treasury2y, treasury10y] = await Promise.all([
-      getFredLatest(fredSeries.sofr),
-      getFredLatest(fredSeries.treasury2y),
-      getFredLatest(fredSeries.treasury10y)
-    ]);
+  const [sofr, treasury2y, treasury10y] = await Promise.all([
+    getFredLatest(fredSeries.sofr),
+    getFredLatest(fredSeries.treasury2y),
+    getFredLatest(fredSeries.treasury10y)
+  ]);
 
-    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
 
-    res.status(200).json({
-      updatedAt: new Date().toISOString(),
-      ...yahoo,
-      sofr,
-      treasury2y,
-      treasury10y
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch market data" });
-  }
+  res.status(200).json({
+    updatedAt: new Date().toISOString(),
+    ...yahoo,
+    sofr,
+    treasury2y,
+    treasury10y
+  });
 }
