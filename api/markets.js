@@ -1,14 +1,14 @@
 const FRED_KEY = process.env.FRED_API_KEY;
 
-const yahooSymbols = {
-  sp500: "^GSPC",
-  nasdaq: "^IXIC",
-  russell: "^RUT",
-  vix: "^VIX",
-  dxy: "DX-Y.NYB",
-  wti: "CL=F",
-  gold: "GC=F",
-  btc: "BTC-USD"
+const stooqSymbols = {
+  sp500: "^spx",
+  nasdaq: "^ndq",
+  russell: "^rut",
+  vix: "^vix",
+  dxy: "dx.f",
+  wti: "cl.f",
+  gold: "gc.f",
+  btc: "btcusd"
 };
 
 const fredSeries = {
@@ -17,42 +17,28 @@ const fredSeries = {
   treasury10y: "DGS10"
 };
 
-async function getYahooQuotes() {
+async function getStooqQuote(symbol) {
   try {
-    const symbols = Object.values(yahooSymbols).join(",");
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`;
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const res = await fetch(url);
+    const text = await res.text();
 
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
-      }
-    });
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) return null;
 
-    const json = await res.json();
-    const results = json.quoteResponse?.result || [];
+    const values = lines[1].split(",");
+    const close = Number(values[6]);
 
-    const bySymbol = {};
-    for (const item of results) {
-      bySymbol[item.symbol] = {
-        price: item.regularMarketPrice ?? null,
-        change: item.regularMarketChangePercent ?? null,
-        time: item.regularMarketTime ?? null
-      };
-    }
+    if (!Number.isFinite(close)) return null;
 
     return {
-      sp500: bySymbol["^GSPC"] || null,
-      nasdaq: bySymbol["^IXIC"] || null,
-      russell: bySymbol["^RUT"] || null,
-      vix: bySymbol["^VIX"] || null,
-      dxy: bySymbol["DX-Y.NYB"] || null,
-      wti: bySymbol["CL=F"] || null,
-      gold: bySymbol["GC=F"] || null,
-      btc: bySymbol["BTC-USD"] || null
+      price: close,
+      change: null,
+      date: values[1],
+      time: values[2]
     };
   } catch {
-    return {};
+    return null;
   }
 }
 
@@ -66,16 +52,20 @@ async function getFredLatest(seriesId) {
       `&api_key=${FRED_KEY}` +
       `&file_type=json` +
       `&sort_order=desc` +
-      `&limit=1`;
+      `&limit=10`;
 
     const res = await fetch(url);
     const json = await res.json();
-    const obs = json.observations?.[0];
+    const observations = json.observations || [];
+
+    const obs = observations.find(o => o.value && o.value !== ".");
+
+    if (!obs) return null;
 
     return {
-      price: obs?.value === "." ? null : Number(obs?.value),
+      price: Number(obs.value),
       change: null,
-      date: obs?.date || null
+      date: obs.date
     };
   } catch {
     return null;
@@ -83,7 +73,14 @@ async function getFredLatest(seriesId) {
 }
 
 export default async function handler(req, res) {
-  const yahoo = await getYahooQuotes();
+  const marketEntries = await Promise.all(
+    Object.entries(stooqSymbols).map(async ([key, symbol]) => {
+      const quote = await getStooqQuote(symbol);
+      return [key, quote];
+    })
+  );
+
+  const markets = Object.fromEntries(marketEntries);
 
   const [sofr, treasury2y, treasury10y] = await Promise.all([
     getFredLatest(fredSeries.sofr),
@@ -91,11 +88,11 @@ export default async function handler(req, res) {
     getFredLatest(fredSeries.treasury10y)
   ]);
 
-  res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
   res.status(200).json({
     updatedAt: new Date().toISOString(),
-    ...yahoo,
+    ...markets,
     sofr,
     treasury2y,
     treasury10y
