@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Market Dashboard</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 14px;
+      background: #0f0f0f;
+      color: white;
+      font-family: Inter, Arial, sans-serif;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .card {
+      background: #171717;
+      border: 1px solid #2a2a2a;
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    .label {
+      font-size: 13px;
+      color: #a8a8a8;
+      margin-bottom: 8px;
+    }
+
+    .value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .change {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .up { color: #22c55e; }
+    .down { color: #ef4444; }
+    .neutral { color: #a8a8a8; }
+
+    .timestamp {
+      margin-top: 14px;
+      color: #777;
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="grid" id="dashboard"></div>
+  <div class="timestamp" id="timestamp"></div>
+
+  <script>
+    const cards = [
+      ["sp500", "S&P 500", "number"],
+      ["nasdaq", "Nasdaq", "number"],
+      ["russell", "Russell 2000", "number"],
+      ["vix", "VIX", "number"],
+      ["treasury2y", "2Y Treasury", "percent"],
+      ["treasury10y", "10Y Treasury", "percent"],
+      ["sofr", "SOFR", "percent"],
+      ["dxy", "Dollar Index", "number"],
+      ["wti", "WTI Crude", "currency"],
+      ["gold", "Gold", "currency"],
+      ["btc", "Bitcoin", "currency"]
+    ];
+
+    function formatValue(value, type) {
+      if (value === null || value === undefined) return "—";
+
+      if (type === "currency") {
+        return "$" + Number(value).toLocaleString(undefined, {
+          maximumFractionDigits: 2
+        });
+      }
+
+      if (type === "percent") {
+        return Number(value).toFixed(2) + "%";
+      }
+
+      return Number(value).toLocaleString(undefined, {
+        maximumFractionDigits: 2
+      });
+    }
+
+    function formatChange(change) {
+      if (change === null || change === undefined) return "";
+
+      const cls = change > 0 ? "up" : change < 0 ? "down" : "neutral";
+      const sign = change > 0 ? "+" : "";
+
+      return `<div class="change ${cls}">${sign}${change.toFixed(2)}%</div>`;
+    }
+
+    async function loadDashboard() {
+      const res = await fetch("/api/markets");
+      const data = await res.json();
+
+      document.getElementById("dashboard").innerHTML = cards.map(([key, label, type]) => {
+        const item = data[key] || {};
+        return `
+          <div class="card">
+            <div class="label">${label}</div>
+            <div class="value">${formatValue(item.price, type)}</div>
+            ${formatChange(item.change)}
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("timestamp").textContent =
+        "Updated " + new Date(data.updatedAt).toLocaleString();
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, 30000);
+  </script>
+</body>
+</html>
