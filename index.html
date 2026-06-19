@@ -2,56 +2,91 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Market Dashboard</title>
+  <title>Markets</title>
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       padding: 14px;
       background: #0f0f0f;
-      color: white;
+      color: #f5f5f5;
       font-family: Inter, Arial, sans-serif;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #8a8a8a;
+      margin: 0 0 8px;
     }
 
     .grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
+      gap: 10px;
     }
 
     .card {
-      background: #171717;
+      background: linear-gradient(180deg, #1a1a1a, #131313);
       border: 1px solid #2a2a2a;
       border-radius: 14px;
-      padding: 16px;
+      padding: 14px;
+      min-height: 112px;
     }
 
     .label {
       font-size: 13px;
       color: #a8a8a8;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
     }
 
     .value {
-      font-size: 28px;
+      font-size: 30px;
+      line-height: 1;
       font-weight: 700;
+      letter-spacing: -0.04em;
     }
 
     .change {
-      margin-top: 8px;
+      margin-top: 10px;
       font-size: 13px;
+      font-weight: 600;
     }
 
-    .up { color: #22c55e; }
-    .down { color: #ef4444; }
-    .neutral { color: #a8a8a8; }
+    .up {
+      color: #22c55e;
+    }
+
+    .down {
+      color: #ef4444;
+    }
+
+    .neutral {
+      color: #a8a8a8;
+    }
+
+    .meta {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #777;
+    }
 
     .timestamp {
-      margin-top: 14px;
+      margin-top: 6px;
       color: #777;
-      font-size: 12px;
+      font-size: 11px;
+      text-align: right;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1000px) {
       .grid {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -60,30 +95,57 @@
 </head>
 
 <body>
-  <div class="grid" id="dashboard"></div>
+  <div class="section">
+    <div class="section-title">Markets</div>
+    <div class="grid" id="markets"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Rates</div>
+    <div class="grid" id="rates"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Risk / Macro</div>
+    <div class="grid" id="risk"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Commodities / Crypto</div>
+    <div class="grid" id="commodities"></div>
+  </div>
+
   <div class="timestamp" id="timestamp"></div>
 
   <script>
-    const cards = [
-      ["sp500", "S&P 500", "number"],
-      ["nasdaq", "Nasdaq", "number"],
-      ["russell", "Russell 2000", "number"],
-      ["vix", "VIX", "number"],
-      ["treasury2y", "2Y Treasury", "percent"],
-      ["treasury10y", "10Y Treasury", "percent"],
-      ["sofr", "SOFR", "percent"],
-      ["dxy", "Dollar Index", "number"],
-      ["wti", "WTI Crude", "currency"],
-      ["gold", "Gold", "currency"],
-      ["btc", "Bitcoin", "currency"]
-    ];
+    const groups = {
+      markets: [
+        ["sp500", "S&P 500", "number"],
+        ["nasdaq", "Nasdaq", "number"],
+        ["russell", "Russell 2000", "number"]
+      ],
+      rates: [
+        ["sofr", "SOFR", "percent"],
+        ["treasury2y", "2Y Treasury", "percent"],
+        ["treasury10y", "10Y Treasury", "percent"]
+      ],
+      risk: [
+        ["vix", "VIX", "number"],
+        ["dxy", "Dollar Index", "number"]
+      ],
+      commodities: [
+        ["wti", "WTI Crude", "currency"],
+        ["gold", "Gold", "currency"],
+        ["btc", "Bitcoin", "currency"]
+      ]
+    };
 
     function formatValue(value, type) {
-      if (value === null || value === undefined) return "—";
+      if (value === null || value === undefined || isNaN(value)) return "—";
 
       if (type === "currency") {
         return "$" + Number(value).toLocaleString(undefined, {
-          maximumFractionDigits: 2
+          maximumFractionDigits: 0
         });
       }
 
@@ -97,35 +159,51 @@
     }
 
     function formatChange(change) {
-      if (change === null || change === undefined) return "";
+      if (change === null || change === undefined || isNaN(change)) {
+        return `<div class="change neutral">—</div>`;
+      }
 
       const cls = change > 0 ? "up" : change < 0 ? "down" : "neutral";
       const sign = change > 0 ? "+" : "";
 
-      return `<div class="change ${cls}">${sign}${change.toFixed(2)}%</div>`;
+      return `<div class="change ${cls}">${sign}${Number(change).toFixed(2)}%</div>`;
+    }
+
+    function cardHtml(data, key, label, type) {
+      const item = data[key] || {};
+      const date = item.date ? `<div class="meta">${item.date}</div>` : "";
+
+      return `
+        <div class="card">
+          <div class="label">${label}</div>
+          <div class="value">${formatValue(item.price, type)}</div>
+          ${formatChange(item.change)}
+          ${date}
+        </div>
+      `;
     }
 
     async function loadDashboard() {
-      const res = await fetch("/api/markets");
-      const data = await res.json();
+      try {
+        const res = await fetch("/api/markets");
+        const data = await res.json();
 
-      document.getElementById("dashboard").innerHTML = cards.map(([key, label, type]) => {
-        const item = data[key] || {};
-        return `
-          <div class="card">
-            <div class="label">${label}</div>
-            <div class="value">${formatValue(item.price, type)}</div>
-            ${formatChange(item.change)}
-          </div>
-        `;
-      }).join("");
+        for (const [groupId, cards] of Object.entries(groups)) {
+          document.getElementById(groupId).innerHTML = cards
+            .map(([key, label, type]) => cardHtml(data, key, label, type))
+            .join("");
+        }
 
-      document.getElementById("timestamp").textContent =
-        "Updated " + new Date(data.updatedAt).toLocaleString();
+        document.getElementById("timestamp").textContent =
+          "Updated " + new Date(data.updatedAt).toLocaleString();
+      } catch {
+        document.getElementById("timestamp").textContent =
+          "Market data failed to load.";
+      }
     }
 
     loadDashboard();
-    setInterval(loadDashboard, 30000);
+    setInterval(loadDashboard, 60000);
   </script>
 </body>
 </html>
