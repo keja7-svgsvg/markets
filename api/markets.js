@@ -1,13 +1,13 @@
 const FRED_KEY = process.env.FRED_API_KEY;
 
 const yahooSymbols = {
-  sp500: "%5EGSPC",
-  nasdaq: "%5EIXIC",
-  russell: "%5ERUT",
+  sp500: "SPY",
+  nasdaq: "QQQ",
+  russell: "IWM",
   vix: "%5EVIX",
-  dxy: "DX-Y.NYB",
-  wti: "CL%3DF",
-  gold: "GC%3DF",
+  dxy: "UUP",
+  wti: "USO",
+  gold: "GLD",
   btc: "BTC-USD"
 };
 
