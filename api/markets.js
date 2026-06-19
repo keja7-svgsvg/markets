@@ -1,47 +1,89 @@
 const FRED_KEY = process.env.FRED_API_KEY;
 
-export default async function handler(req, res) {
-  const results = {};
+const yahooSymbols = {
+  sp500: "%5EGSPC",
+  nasdaq: "%5EIXIC",
+  russell: "%5ERUT",
+  vix: "%5EVIX",
+  dxy: "DX-Y.NYB",
+  wti: "CL%3DF",
+  gold: "GC%3DF",
+  btc: "BTC-USD"
+};
 
+const fredSeries = {
+  sofr: "SOFR",
+  treasury2y: "DGS2",
+  treasury10y: "DGS10"
+};
+
+async function getYahooChart(encodedSymbol) {
   try {
-    const stooqUrl = "https://stooq.com/q/l/?s=%5Espx&f=sd2t2ohlcv&h&e=csv";
-    const stooqRes = await fetch(stooqUrl);
-    const stooqText = await stooqRes.text();
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=2d&interval=1d`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-    results.stooq = {
-      status: stooqRes.status,
-      ok: stooqRes.ok,
-      sample: stooqText.slice(0, 300)
+    const json = await res.json();
+    const result = json.chart?.result?.[0];
+    const meta = result?.meta;
+
+    if (!meta?.regularMarketPrice) return null;
+
+    return {
+      price: meta.regularMarketPrice,
+      change: meta.chartPreviousClose
+        ? ((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose) * 100
+        : null
     };
-  } catch (err) {
-    results.stooq = {
-      error: err.message
-    };
+  } catch {
+    return null;
   }
+}
 
+async function getFredLatest(seriesId) {
   try {
-    results.fredKeyExists = !!FRED_KEY;
+    if (!FRED_KEY) return null;
 
-    const fredUrl =
+    const url =
       `https://api.stlouisfed.org/fred/series/observations` +
-      `?series_id=DGS10&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=3`;
+      `?series_id=${seriesId}&api_key=${FRED_KEY}` +
+      `&file_type=json&sort_order=desc&limit=10`;
 
-    const fredRes = await fetch(fredUrl);
-    const fredText = await fredRes.text();
+    const res = await fetch(url);
+    const json = await res.json();
+    const obs = json.observations?.find(o => o.value && o.value !== ".");
 
-    results.fred = {
-      status: fredRes.status,
-      ok: fredRes.ok,
-      sample: fredText.slice(0, 300)
+    if (!obs) return null;
+
+    return {
+      price: Number(obs.value),
+      change: null,
+      date: obs.date
     };
-  } catch (err) {
-    results.fred = {
-      error: err.message
-    };
+  } catch {
+    return null;
   }
+}
+
+export default async function handler(req, res) {
+  const marketEntries = await Promise.all(
+    Object.entries(yahooSymbols).map(async ([key, symbol]) => {
+      return [key, await getYahooChart(symbol)];
+    })
+  );
+
+  const [sofr, treasury2y, treasury10y] = await Promise.all([
+    getFredLatest(fredSeries.sofr),
+    getFredLatest(fredSeries.treasury2y),
+    getFredLatest(fredSeries.treasury10y)
+  ]);
 
   res.status(200).json({
     updatedAt: new Date().toISOString(),
-    results
+    ...Object.fromEntries(marketEntries),
+    sofr,
+    treasury2y,
+    treasury10y
   });
 }
