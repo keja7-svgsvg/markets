@@ -19,9 +19,13 @@ const fredSeries = {
 
 async function getYahooChart(encodedSymbol) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=2d&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=1d&interval=1m`;
+
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+      }
     });
 
     const json = await res.json();
@@ -32,9 +36,7 @@ async function getYahooChart(encodedSymbol) {
 
     return {
       price: meta.regularMarketPrice,
-      change: meta.chartPreviousClose
-        ? ((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose) * 100
-        : null
+      change: meta.regularMarketChangePercent ?? null
     };
   } catch {
     return null;
@@ -47,11 +49,15 @@ async function getFredLatest(seriesId) {
 
     const url =
       `https://api.stlouisfed.org/fred/series/observations` +
-      `?series_id=${seriesId}&api_key=${FRED_KEY}` +
-      `&file_type=json&sort_order=desc&limit=10`;
+      `?series_id=${seriesId}` +
+      `&api_key=${FRED_KEY}` +
+      `&file_type=json` +
+      `&sort_order=desc` +
+      `&limit=10`;
 
     const res = await fetch(url);
     const json = await res.json();
+
     const obs = json.observations?.find(o => o.value && o.value !== ".");
 
     if (!obs) return null;
@@ -78,6 +84,8 @@ export default async function handler(req, res) {
     getFredLatest(fredSeries.treasury2y),
     getFredLatest(fredSeries.treasury10y)
   ]);
+
+  res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
   res.status(200).json({
     updatedAt: new Date().toISOString(),
